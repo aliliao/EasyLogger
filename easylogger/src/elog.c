@@ -934,3 +934,179 @@ void elog_hexdump(const char *name, uint8_t width, const void *buf, uint16_t siz
     /* unlock output */
     elog_output_unlock();
 }
+
+/**
+ * output the log with format hex
+ *
+ * @param level level
+ * @param tag tag
+ * @param file file name
+ * @param func function name
+ * @param line line number
+ * @param format output format
+ * @param ... args
+ *
+ */
+void elog_output_hex(uint8_t level, const char *tag, const char *file,
+                     const char *func, const long line, const char *prefix, const char *buf, uint16_t buf_len) {
+    extern const char *elog_port_get_time(void);
+    extern const char *elog_port_get_p_info(void);
+    extern const char *elog_port_get_t_info(void);
+
+    size_t tag_len = strlen(tag), log_len = 0, newline_len = strlen(ELOG_NEWLINE_SIGN);
+    char line_num[ELOG_LINE_NUM_MAX_LEN + 1] = { 0 };
+    char tag_sapce[ELOG_FILTER_TAG_MAX_LEN / 2 + 1] = { 0 };
+    char hex_string[8] = {0};
+
+    ELOG_ASSERT(level <= ELOG_LVL_VERBOSE);
+
+    /* check output enabled */
+    if (!elog.output_enabled) {
+        return;
+    }
+    /* level filter */
+    if (level > elog.filter.level || level > elog_get_filter_tag_lvl(tag)) {
+        return;
+    } else if (!strstr(tag, elog.filter.tag)) { /* tag filter */
+        return;
+    }
+
+    /* lock output */
+    elog_output_lock();
+
+#ifdef ELOG_COLOR_ENABLE
+    /* add CSI start sign and color info */
+    if (elog.text_color_enabled) {
+        log_len += elog_strcpy(log_len, log_buf + log_len, CSI_START);
+        log_len += elog_strcpy(log_len, log_buf + log_len, color_output_info[level]);
+    }
+#endif
+
+    /* package level info */
+    if (get_fmt_enabled(level, ELOG_FMT_LVL)) {
+        log_len += elog_strcpy(log_len, log_buf + log_len, level_output_info[level]);
+    }
+    /* package tag info */
+    if (get_fmt_enabled(level, ELOG_FMT_TAG)) {
+        log_len += elog_strcpy(log_len, log_buf + log_len, tag);
+        /* if the tag length is less than 50% ELOG_FILTER_TAG_MAX_LEN, then fill space */
+        if (tag_len <= ELOG_FILTER_TAG_MAX_LEN / 2) {
+            memset(tag_sapce, ' ', ELOG_FILTER_TAG_MAX_LEN / 2 - tag_len);
+            log_len += elog_strcpy(log_len, log_buf + log_len, tag_sapce);
+        }
+        log_len += elog_strcpy(log_len, log_buf + log_len, " ");
+    }
+    /* package time, process and thread info */
+    if (get_fmt_enabled(level, ELOG_FMT_TIME | ELOG_FMT_P_INFO | ELOG_FMT_T_INFO)) {
+        log_len += elog_strcpy(log_len, log_buf + log_len, "[");
+        /* package time info */
+        if (get_fmt_enabled(level, ELOG_FMT_TIME)) {
+            log_len += elog_strcpy(log_len, log_buf + log_len, elog_port_get_time());
+            if (get_fmt_enabled(level, ELOG_FMT_P_INFO | ELOG_FMT_T_INFO)) {
+                log_len += elog_strcpy(log_len, log_buf + log_len, " ");
+            }
+        }
+        /* package process info */
+        if (get_fmt_enabled(level, ELOG_FMT_P_INFO)) {
+            log_len += elog_strcpy(log_len, log_buf + log_len, elog_port_get_p_info());
+            if (get_fmt_enabled(level, ELOG_FMT_T_INFO)) {
+                log_len += elog_strcpy(log_len, log_buf + log_len, " ");
+            }
+        }
+        /* package thread info */
+        if (get_fmt_enabled(level, ELOG_FMT_T_INFO)) {
+            log_len += elog_strcpy(log_len, log_buf + log_len, elog_port_get_t_info());
+        }
+        log_len += elog_strcpy(log_len, log_buf + log_len, "] ");
+    }
+    /* package file directory and name, function name and line number info */
+    if (get_fmt_enabled(level, ELOG_FMT_DIR | ELOG_FMT_FUNC | ELOG_FMT_LINE)) {
+        log_len += elog_strcpy(log_len, log_buf + log_len, "(");
+        /* package file info */
+        if (get_fmt_enabled(level, ELOG_FMT_DIR)) {
+            log_len += elog_strcpy(log_len, log_buf + log_len, file);
+            if (get_fmt_enabled(level, ELOG_FMT_FUNC)) {
+                log_len += elog_strcpy(log_len, log_buf + log_len, ":");
+            } else if (get_fmt_enabled(level, ELOG_FMT_LINE)) {
+                log_len += elog_strcpy(log_len, log_buf + log_len, " ");
+            }
+        }
+        /* package line info */
+        if (get_fmt_enabled(level, ELOG_FMT_LINE)) {
+            snprintf(line_num, ELOG_LINE_NUM_MAX_LEN, "%ld", line);
+            log_len += elog_strcpy(log_len, log_buf + log_len, line_num);
+            if (get_fmt_enabled(level, ELOG_FMT_FUNC)) {
+                log_len += elog_strcpy(log_len, log_buf + log_len, " ");
+            }
+        }
+        /* package func info */
+        if (get_fmt_enabled(level, ELOG_FMT_FUNC)) {
+            log_len += elog_strcpy(log_len, log_buf + log_len, func);
+
+        }
+        log_len += elog_strcpy(log_len, log_buf + log_len, ")");
+    }
+    
+    /* package prefix info if it is not null */
+    if (prefix != NULL) {
+        log_len += elog_strcpy(log_len, log_buf + log_len, prefix);
+    }
+
+    /* package hex data */
+    for (int32_t i = 0; i < buf_len; i++) {
+        snprintf(hex_string, sizeof(hex_string), "%02X ", buf[i] & 0xFF);
+        log_len += elog_strcpy(log_len, log_buf + log_len, hex_string);
+        if (log_len >= ELOG_LINE_BUF_SIZE) {
+            break;
+        }
+    }
+
+    /* overflow check and reserve some space for CSI end sign and newline sign */
+#ifdef ELOG_COLOR_ENABLE
+    if (log_len + (sizeof(CSI_END) - 1) + newline_len > ELOG_LINE_BUF_SIZE) {
+        /* using max length */
+        log_len = ELOG_LINE_BUF_SIZE;
+        /* reserve some space for CSI end sign */
+        log_len -= (sizeof(CSI_END) - 1);
+#else
+    if (log_len + newline_len > ELOG_LINE_BUF_SIZE) {
+        /* using max length */
+        log_len = ELOG_LINE_BUF_SIZE;
+#endif /* ELOG_COLOR_ENABLE */
+        /* reserve some space for newline sign */
+        log_len -= newline_len;
+    }
+    /* keyword filter */
+    if (elog.filter.keyword[0] != '\0') {
+        /* add string end sign */
+        log_buf[log_len] = '\0';
+        /* find the keyword */
+        if (!strstr(log_buf, elog.filter.keyword)) {
+            /* unlock output */
+            elog_output_unlock();
+            return;
+        }
+    }
+
+#ifdef ELOG_COLOR_ENABLE
+    /* add CSI end sign */
+    if (elog.text_color_enabled) {
+        log_len += elog_strcpy(log_len, log_buf + log_len, CSI_END);
+    }
+#endif
+
+    /* package newline sign */
+    log_len += elog_strcpy(log_len, log_buf + log_len, ELOG_NEWLINE_SIGN);
+    /* output log */
+#if defined(ELOG_ASYNC_OUTPUT_ENABLE)
+    extern void elog_async_output(uint8_t level, const char *log, size_t size);
+    elog_async_output(level, log_buf, log_len);
+#elif defined(ELOG_BUF_OUTPUT_ENABLE)
+    extern void elog_buf_output(const char *log, size_t size);
+    elog_buf_output(log_buf, log_len);
+#else
+    elog_port_output(log_buf, log_len);
+#endif
+    /* unlock output */
+    elog_output_unlock();
+}

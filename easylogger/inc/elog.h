@@ -45,6 +45,9 @@ extern "C" {
 #define ELOG_LVL_INFO                        3
 #define ELOG_LVL_DEBUG                       4
 #define ELOG_LVL_VERBOSE                     5
+#ifndef ELOG_LVL_HEX
+#define ELOG_LVL_HEX                         ELOG_LVL_INFO
+#endif /* ELOG_LVL_HEX */
 
 /* the output silent level and all level for filter setting */
 #define ELOG_FILTER_LVL_SILENT               ELOG_LVL_ASSERT
@@ -142,6 +145,13 @@ extern "C" {
     #else
         #define elog_verbose(tag, ...)
     #endif /* ELOG_OUTPUT_LVL == ELOG_LVL_VERBOSE */
+
+    #if ELOG_OUTPUT_LVL >= ELOG_LVL_HEX
+        #define elog_hex(tag, prefix, data, len) \
+                elog_output_hex(ELOG_LVL_HEX, tag, __FILE__, __FUNCTION__, __LINE__, prefix, data, len)
+    #else
+        #define elog_hex(tag, ...)
+    #endif /* ELOG_OUTPUT_LVL == ELOG_LVL_HEX */
 #endif /* ELOG_OUTPUT_ENABLE */
 
 /* all formats index */
@@ -215,6 +225,8 @@ uint8_t elog_get_filter_tag_lvl(const char *tag);
 void elog_raw_output(const char *format, ...);
 void elog_output(uint8_t level, const char *tag, const char *file, const char *func,
         const long line, const char *format, ...);
+void elog_output_hex(uint8_t level, const char *tag, const char *file,
+        const char *func, const long line, const char *prefix, const char *buf, uint16_t size);
 void elog_output_lock_enabled(bool enabled);
 extern void (*elog_assert_hook)(const char* expr, const char* func, size_t line);
 void elog_assert_set_hook(void (*hook)(const char* expr, const char* func, size_t line));
@@ -268,6 +280,11 @@ void elog_hexdump(const char *name, uint8_t width, const void *buf, uint16_t siz
     #define log_v(...)       elog_v(LOG_TAG, __VA_ARGS__)
 #else
     #define log_v(...)       ((void)0);
+#endif
+#if LOG_LVL >= ELOG_LVL_HEX
+    #define log_hex(prefix, data, len)    elog_hex(LOG_TAG, prefix, data, len)
+#else
+    #define log_hex(...)       ((void)0);
 #endif
 
 /* assert API short definition */
